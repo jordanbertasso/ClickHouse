@@ -53,6 +53,7 @@ namespace Setting
     extern const SettingsBool query_plan_enable_optimizations;
     extern const SettingsBool query_plan_execute_functions_after_sorting;
     extern const SettingsBool query_plan_filter_push_down;
+    extern const SettingsBool query_plan_ie_join_select_conditions_by_selectivity;
     extern const SettingsBool query_plan_join_shard_by_pk_ranges;
     extern const SettingsBool query_plan_lift_up_array_join;
     extern const SettingsBool query_plan_lift_up_union;
@@ -205,6 +206,7 @@ QueryPlanOptimizationSettings::QueryPlanOptimizationSettings(
     join_swap_table = from[Setting::query_plan_join_swap_table].is_auto
         ? std::nullopt
         : std::make_optional(from[Setting::query_plan_join_swap_table].base);
+    ie_join_select_conditions_by_selectivity = from[Setting::query_plan_ie_join_select_conditions_by_selectivity];
     use_join_disjunctions_push_down = from[Setting::query_plan_enable_optimizations] && from[Setting::use_join_disjunctions_push_down];
     remove_unused_columns = from[Setting::query_plan_enable_optimizations] && from[Setting::query_plan_remove_unused_columns];
 
