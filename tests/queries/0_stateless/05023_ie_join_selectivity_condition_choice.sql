@@ -10,7 +10,6 @@ SET join_use_nulls = 0;
 SET enable_parallel_replicas = 0;
 SET use_statistics = 1;
 SET materialize_statistics_on_insert = 1;
-SET query_plan_ie_join_select_conditions_by_selectivity = 1;
 
 DROP TABLE IF EXISTS t_sel_l;
 DROP TABLE IF EXISTS t_sel_r;
@@ -35,14 +34,6 @@ SELECT extract(explain, 'Conditions: .*') FROM (
     ON l.a1 < r.b1 AND l.a2 < r.b2 AND l.a3 < r.b3
 ) WHERE explain LIKE '%Conditions:%';
 
-SELECT '-- disabled: the first two in syntax order';
-SELECT extract(explain, 'Conditions: .*') FROM (
-    EXPLAIN actions = 1
-    SELECT count() FROM t_sel_l AS l JOIN t_sel_r AS r
-    ON l.a1 < r.b1 AND l.a2 < r.b2 AND l.a3 < r.b3
-    SETTINGS query_plan_ie_join_select_conditions_by_selectivity = 0
-) WHERE explain LIKE '%Conditions:%';
-
 SELECT '-- no statistics: the first two in syntax order';
 SELECT extract(explain, 'Conditions: .*') FROM (
     EXPLAIN actions = 1
@@ -57,7 +48,7 @@ ON l.a1 < r.b1 AND l.a2 < r.b2 AND l.a3 < r.b3;
 
 SELECT count(), sum(a1 + a2 + a3 + b1 + b2 + b3) FROM t_sel_l AS l JOIN t_sel_r AS r
 ON l.a1 < r.b1 AND l.a2 < r.b2 AND l.a3 < r.b3
-SETTINGS query_plan_ie_join_select_conditions_by_selectivity = 0;
+SETTINGS use_statistics = 0;
 
 -- The oracle: the same predicate as a filter over CROSS JOIN.
 SELECT count(), sum(a1 + a2 + a3 + b1 + b2 + b3) FROM t_sel_l AS l, t_sel_r AS r
@@ -70,7 +61,7 @@ ON l.a1 < r.b1 AND l.a2 < r.b2 AND l.a3 < r.b3;
 
 SELECT count(), sum(a1 + a3), countIf(b1 = 0 AND b2 = 0 AND b3 = 0) FROM t_sel_l AS l LEFT JOIN t_sel_r AS r
 ON l.a1 < r.b1 AND l.a2 < r.b2 AND l.a3 < r.b3
-SETTINGS query_plan_ie_join_select_conditions_by_selectivity = 0;
+SETTINGS use_statistics = 0;
 
 SELECT '-- band pair beats the marginal-greedy pick';
 -- Marginals: sel(a1 > lo) ~ 0.5, sel(a1 < hi) ~ 0.5, sel(a3 < b3) ~ 0.05; but the band

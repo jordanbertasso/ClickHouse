@@ -78,8 +78,6 @@ struct QueryPlanOptimizationSettings
     /// true/false - always/never swap
     /// nullopt - swap if it's beneficial
     std::optional<bool> join_swap_table;
-    /// Choose the two IEJoin key conditions by estimated selectivity instead of syntax order
-    bool ie_join_select_conditions_by_selectivity = true;
     /// Maximum number of tables in query graph to reorder
     UInt64 query_plan_optimize_join_order_limit;
     /// Maximum number of partial plans to enumerate before falling back to the next algorithm

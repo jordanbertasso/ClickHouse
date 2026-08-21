@@ -1,7 +1,5 @@
 -- keys chosen by selectivity
 Conditions: __table1.a1 < __table2.b1 AND __table1.a3 < __table2.b3
--- disabled: the first two in syntax order
-Conditions: __table1.a1 < __table2.b1 AND __table1.a2 < __table2.b2
 -- no statistics: the first two in syntax order
 Conditions: __table1.a1 < __table2.b1 AND __table1.a2 < __table2.b2
 -- results are independent of the choice

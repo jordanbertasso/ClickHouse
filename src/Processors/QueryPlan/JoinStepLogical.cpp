@@ -962,13 +962,42 @@ static Float64 uniformLessProbability(Float64 min_x, Float64 max_x, Float64 min_
     if (width_y <= 0)
         return (min_y - min_x) / width_x;
 
-    /// P(x < y) = E[F_x(y)]: integrate the CDF of x, rising linearly from 0 at min_x to 1 at
-    /// max_x, over the range of y.
+    /// Condition on the value of y: P(x < y) = E[F_x(y)], where F_x is the CDF of x, rising
+    /// linearly from 0 at min_x to 1 at max_x. Since y is uniform, the expectation is the
+    /// average of F_x over [min_y, max_y]: the exact integral of the linear segment over the
+    /// overlap [lo, hi], plus 1 for the part of y's range above max_x (there every x < y),
+    /// plus 0 for the part below min_x. Conditioning on x instead gives the same value.
     const Float64 lo = std::max(min_x, min_y);
     const Float64 hi = std::min(max_x, max_y);
     Float64 integral = ((hi - min_x) * (hi - min_x) - (lo - min_x) * (lo - min_x)) / (2 * width_x);
     integral += std::max(0.0, max_y - std::max(min_y, max_x));
     return std::clamp(integral / width_y, 0.0, 1.0);
+}
+
+/// The statistics min/max of a key operand as raw numbers, with the fraction of NULL values.
+struct IEJoinOperandRange
+{
+    Float64 min;
+    Float64 max;
+    Float64 null_fraction;
+};
+
+/// The numeric value of a statistics min/max Field. Basic statistics keep min/max only for
+/// values represented by numbers (`hasNumericMinMax`), so only the numeric Field types occur;
+/// anything else (e.g. a Decimal) yields no estimate rather than a wrong one.
+static std::optional<Float64> statisticsFieldToFloat64(const Field & value)
+{
+    switch (value.getType())
+    {
+        case Field::Types::UInt64:
+            return static_cast<Float64>(value.safeGet<UInt64>());
+        case Field::Types::Int64:
+            return static_cast<Float64>(value.safeGet<Int64>());
+        case Field::Types::Float64:
+            return value.safeGet<Float64>();
+        default:
+            return {};
+    }
 }
 
 /// The fraction of row pairs satisfying the condition, estimated from per-column min/max
@@ -980,19 +1009,24 @@ static std::optional<Float64> estimateIEJoinConditionSelectivity(
     const JoinActionRef & rhs,
     const JoinPlanningContext & planning_context)
 {
-    /// (min, max, null fraction) of an operand, when the statistics cover it.
+    /// The two ranges are compared as raw numbers, so the sides need a shared unit: the same
+    /// underlying type (e.g. two DateTime columns), or plain numbers, which all share one axis.
+    const DataTypePtr left_type = removeNullable(removeLowCardinality(lhs.getType()));
+    const DataTypePtr right_type = removeNullable(removeLowCardinality(rhs.getType()));
+    if (!left_type->equals(*right_type) && !(isNumber(left_type) && isNumber(right_type)))
+        return {};
+
     auto get_range = [](const std::unordered_map<String, ColumnStats> & column_stats, const JoinActionRef & operand)
-        -> std::optional<std::array<Float64, 3>>
+        -> std::optional<IEJoinOperandRange>
     {
         auto it = column_stats.find(operand.getColumnName());
         if (it == column_stats.end() || !it->second.min_value || !it->second.max_value)
             return {};
-        auto type = removeNullable(removeLowCardinality(operand.getType()));
-        auto min_value = StatisticsUtils::tryConvertToFloat64(*it->second.min_value, type);
-        auto max_value = StatisticsUtils::tryConvertToFloat64(*it->second.max_value, type);
+        auto min_value = statisticsFieldToFloat64(*it->second.min_value);
+        auto max_value = statisticsFieldToFloat64(*it->second.max_value);
         if (!min_value || !max_value || !std::isfinite(*min_value) || !std::isfinite(*max_value))
             return {};
-        return {{*min_value, *max_value, it->second.null_fraction}};
+        return IEJoinOperandRange{.min = *min_value, .max = *max_value, .null_fraction = it->second.null_fraction};
     };
 
     auto left_range = get_range(planning_context.left_column_stats, lhs);
@@ -1000,12 +1034,12 @@ static std::optional<Float64> estimateIEJoinConditionSelectivity(
     if (!left_range || !right_range)
         return {};
 
-    Float64 result = uniformLessProbability((*left_range)[0], (*left_range)[1], (*right_range)[0], (*right_range)[1]);
+    Float64 result = uniformLessProbability(left_range->min, left_range->max, right_range->min, right_range->max);
     if (predicate_op == JoinConditionOperator::Greater || predicate_op == JoinConditionOperator::GreaterOrEquals)
         result = 1.0 - result;
 
     /// A NULL operand fails any inequality.
-    result *= (1.0 - (*left_range)[2]) * (1.0 - (*right_range)[2]);
+    result *= (1.0 - left_range->null_fraction) * (1.0 - right_range->null_fraction);
     return std::clamp(result, 0.0, 1.0);
 }
 
@@ -1572,8 +1606,7 @@ static QueryPlanNode buildPhysicalJoinImpl(
     /// Selectivity estimates for the IEJoin key condition choice; only needed when the choice is
     /// not forced, i.e. there are more eligible inequality conditions than the two the operator
     /// uses as keys.
-    if (optimization_settings.ie_join_select_conditions_by_selectivity
-        && !planning_context.is_storage_join
+    if (!planning_context.is_storage_join
         && children.size() == 2
         && TableJoin::isEnabledAlgorithm(join_settings.join_algorithms, JoinAlgorithm::IE_JOIN)
         && IEJoinStep::isSupportedJoinType(join_operator.kind, join_operator.strictness))
