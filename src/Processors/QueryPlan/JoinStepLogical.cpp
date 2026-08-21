@@ -1078,6 +1078,12 @@ static Float64 estimateIEJoinKeyPairSelectivity(
 static std::optional<std::pair<size_t, size_t>> chooseIEJoinKeyConditions(
     const std::vector<IEJoinKeyCandidate> & candidates, const JoinPlanningContext & planning_context)
 {
+    /// The pair enumeration below is quadratic. A handwritten ON clause has a handful of
+    /// conjuncts, but cap the count so a machine-generated one cannot make planning expensive.
+    static constexpr size_t max_candidates_to_rank = 64;
+    if (candidates.size() > max_candidates_to_rank)
+        return {};
+
     std::vector<Float64> selectivities(candidates.size());
     for (size_t i = 0; i < candidates.size(); ++i)
     {
