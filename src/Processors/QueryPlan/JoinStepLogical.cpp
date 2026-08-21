@@ -49,7 +49,6 @@
 #include <Processors/QueryPlan/JoinStep.h>
 #include <Processors/QueryPlan/Optimizations/QueryPlanOptimizationSettings.h>
 #include <Processors/QueryPlan/Optimizations/Utils.h>
-#include <Processors/QueryPlan/Optimizations/joinOrder.h>
 #include <Processors/QueryPlan/QueryPlan.h>
 #include <Processors/QueryPlan/QueryPlanSerializationSettings.h>
 #include <Processors/QueryPlan/QueryPlanStepRegistry.h>
