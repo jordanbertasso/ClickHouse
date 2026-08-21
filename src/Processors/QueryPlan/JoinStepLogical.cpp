@@ -1078,12 +1078,6 @@ static Float64 estimateIEJoinKeyPairSelectivity(
 static std::optional<std::pair<size_t, size_t>> chooseIEJoinKeyConditions(
     const std::vector<IEJoinKeyCandidate> & candidates, const JoinPlanningContext & planning_context)
 {
-    /// The pair enumeration below is quadratic. A handwritten ON clause has a handful of
-    /// conjuncts, but cap the count so a machine-generated one cannot make planning expensive.
-    static constexpr size_t max_candidates_to_rank = 64;
-    if (candidates.size() > max_candidates_to_rank)
-        return {};
-
     std::vector<Float64> selectivities(candidates.size());
     for (size_t i = 0; i < candidates.size(); ++i)
     {
@@ -1096,17 +1090,39 @@ static std::optional<std::pair<size_t, size_t>> chooseIEJoinKeyConditions(
 
     std::pair<size_t, size_t> best{0, 1};
     Float64 best_selectivity = std::numeric_limits<Float64>::infinity();
-    for (size_t i = 0; i < candidates.size(); ++i)
+
+    /// The exact pair enumeration is quadratic. A handwritten ON clause has a handful of
+    /// conjuncts, but a machine-generated one can have many: beyond the cap, take the two
+    /// smallest marginal selectivities independently, forgoing only the correlation
+    /// correction for pairs reading the same column.
+    static constexpr size_t max_candidates_to_rank_pairwise = 64;
+    if (candidates.size() > max_candidates_to_rank_pairwise)
     {
-        for (size_t j = i + 1; j < candidates.size(); ++j)
+        /// Strict improvement only, here and below: ties resolve to the earliest in syntax order.
+        size_t first = 0;
+        for (size_t i = 1; i < selectivities.size(); ++i)
+            if (selectivities[i] < selectivities[first])
+                first = i;
+        size_t second = first == 0 ? 1 : 0;
+        for (size_t i = 0; i < selectivities.size(); ++i)
+            if (i != first && selectivities[i] < selectivities[second])
+                second = i;
+        best = std::minmax(first, second);
+        best_selectivity = selectivities[first] * selectivities[second];
+    }
+    else
+    {
+        for (size_t i = 0; i < candidates.size(); ++i)
         {
-            Float64 pair_selectivity
-                = estimateIEJoinKeyPairSelectivity(candidates[i], selectivities[i], candidates[j], selectivities[j]);
-            /// Strict improvement only: ties resolve to the earliest pair in syntax order.
-            if (pair_selectivity < best_selectivity)
+            for (size_t j = i + 1; j < candidates.size(); ++j)
             {
-                best = {i, j};
-                best_selectivity = pair_selectivity;
+                Float64 pair_selectivity
+                    = estimateIEJoinKeyPairSelectivity(candidates[i], selectivities[i], candidates[j], selectivities[j]);
+                if (pair_selectivity < best_selectivity)
+                {
+                    best = {i, j};
+                    best_selectivity = pair_selectivity;
+                }
             }
         }
     }
