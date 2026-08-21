@@ -962,11 +962,11 @@ static Float64 uniformLessProbability(Float64 min_x, Float64 max_x, Float64 min_
     if (width_y <= 0)
         return (min_y - min_x) / width_x;
 
-    /// Condition on the value of y: P(x < y) = E[F_x(y)], where F_x is the CDF of x, rising
-    /// linearly from 0 at min_x to 1 at max_x. Since y is uniform, the expectation is the
-    /// average of F_x over [min_y, max_y]: the exact integral of the linear segment over the
-    /// overlap [lo, hi], plus 1 for the part of y's range above max_x (there every x < y),
-    /// plus 0 for the part below min_x. Conditioning on x instead gives the same value.
+    /// (x, y) is a uniform point in the rectangle [min_x, max_x] x [min_y, max_y], and
+    /// P(x < y) is the share of the rectangle above the line x = y. Summing that share
+    /// slice by slice in y: a slice with y < min_x adds 0, a slice with y > max_x adds 1,
+    /// and in between the share grows linearly with y, which sums to the quadratic term
+    /// over the overlap [lo, hi].
     const Float64 lo = std::max(min_x, min_y);
     const Float64 hi = std::min(max_x, max_y);
     Float64 integral = ((hi - min_x) * (hi - min_x) - (lo - min_x) * (lo - min_x)) / (2 * width_x);
